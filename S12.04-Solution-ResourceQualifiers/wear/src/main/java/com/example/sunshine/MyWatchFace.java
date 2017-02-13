@@ -93,6 +93,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
         Paint mBackgroundPaint;
         Paint mTextPaint;
         Paint mDateTextPaint;
+        Paint mDividerPaint;
         boolean mAmbient;
         Calendar mCalendar;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
@@ -102,8 +103,6 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 invalidate();
             }
         };
-        float mXOffset;
-        float mXOffsetDate;
         float mYOffset;
         float mYOffsetDate;
 
@@ -130,9 +129,12 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.background));
 
-            mTextPaint = new Paint();
             mTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
             mDateTextPaint = createTextPaint(resources.getColor(R.color.date_digital_text));
+
+            mDividerPaint = new Paint();
+            mDividerPaint.setColor(resources.getColor(R.color.divider));
+            mDividerPaint.setStrokeWidth(2f);
 
             mCalendar = Calendar.getInstance();
         }
@@ -194,10 +196,6 @@ public class MyWatchFace extends CanvasWatchFaceService {
             // Load resources that have alternate values for round watches.
             Resources resources = MyWatchFace.this.getResources();
             boolean isRound = insets.isRound();
-            mXOffset = resources.getDimension(isRound
-                    ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
-            mXOffsetDate = resources.getDimension(isRound
-                    ? R.dimen.digital_date_x_offset_round : R.dimen.digital_date_x_offset);
             float textSize = resources.getDimension(isRound
                     ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
             float textDateSize = resources.getDimension(isRound
@@ -271,15 +269,23 @@ public class MyWatchFace extends CanvasWatchFaceService {
             long now = System.currentTimeMillis();
             mCalendar.setTimeInMillis(now);
 
-            String text = String.format("%02d:%02d", mCalendar.get(Calendar.HOUR),
+            String text = String.format(Locale.ENGLISH, "%02d:%02d", mCalendar.get(Calendar.HOUR),
                     mCalendar.get(Calendar.MINUTE));
 
             String pattern = "EE, MMM dd yyyy";
             String date = new SimpleDateFormat(pattern, Locale.ENGLISH).format(now).toUpperCase();
 
-            Log.d("onDraw date", date);
-            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
-            canvas.drawText(date, mXOffsetDate, mYOffsetDate, mDateTextPaint);
+            String sampleTime = "08:00";
+            String sampleDate = "SUN, FEB 12 2017";
+            float xPos = bounds.width()/2f;
+            float yPos = bounds.height()/2f;
+
+            canvas.drawText(text, xPos - mTextPaint.measureText(sampleTime)/2f,
+                    yPos - mYOffset, mTextPaint);
+            canvas.drawText(date, xPos - mDateTextPaint.measureText(sampleDate)/2f,
+                    yPos - mYOffsetDate, mDateTextPaint);
+
+            canvas.drawLine(xPos - 30, yPos, xPos + 30, yPos, mDividerPaint);
         }
 
         /**
