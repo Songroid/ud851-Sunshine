@@ -4,7 +4,10 @@
     <dimen name="digital_text_size_round">40dp</dimen>
     <dimen name="digital_date_text_size">13dp</dimen>
     <dimen name="digital_date_text_size_round">18dp</dimen>
+    <dimen name="digital_temp_text_size">10dp</dimen>
+    <dimen name="digital_temp_text_size_round">15dp</dimen>
     <dimen name="digital_y_offset">35dp</dimen>
-    <dimen name="digital_y_offset_date">15dp</dimen>
+    <dimen name="digital_y_offset_date">12dp</dimen>
+    <dimen name="digital_y_offset_temp">20dp</dimen>
 
 </resources>

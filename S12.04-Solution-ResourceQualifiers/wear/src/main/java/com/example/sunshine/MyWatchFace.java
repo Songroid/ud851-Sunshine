@@ -29,12 +29,19 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.support.wearable.complications.ComplicationData;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 import android.widget.Toast;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
 
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
@@ -50,7 +57,6 @@ import java.util.concurrent.TimeUnit;
 public class MyWatchFace extends CanvasWatchFaceService {
     private static final Typeface NORMAL_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
-
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
      * displayed in interactive mode.
@@ -87,13 +93,19 @@ public class MyWatchFace extends CanvasWatchFaceService {
         }
     }
 
-    private class Engine extends CanvasWatchFaceService.Engine {
+    private class Engine extends CanvasWatchFaceService.Engine implements
+            GoogleApiClient.ConnectionCallbacks,
+            GoogleApiClient.OnConnectionFailedListener {
         final Handler mUpdateTimeHandler = new EngineHandler(this);
         boolean mRegisteredTimeZoneReceiver = false;
         Paint mBackgroundPaint;
         Paint mTextPaint;
         Paint mDateTextPaint;
         Paint mDividerPaint;
+
+        Paint mHighPaint;
+        float mHighY;
+
         boolean mAmbient;
         Calendar mCalendar;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
@@ -137,6 +149,9 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mDividerPaint.setStrokeWidth(2f);
 
             mCalendar = Calendar.getInstance();
+
+            mHighPaint = createTextPaint(resources.getColor(R.color.digital_text));
+            mHighY = resources.getDimension(R.dimen.digital_y_offset_temp);
         }
 
         @Override
@@ -200,9 +215,12 @@ public class MyWatchFace extends CanvasWatchFaceService {
                     ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
             float textDateSize = resources.getDimension(isRound
                     ? R.dimen.digital_date_text_size_round : R.dimen.digital_date_text_size);
+            float textHighSize = resources.getDimension(isRound
+                    ? R.dimen.digital_date_text_size_round : R.dimen.digital_date_text_size);
 
             mTextPaint.setTextSize(textSize);
             mDateTextPaint.setTextSize(textDateSize);
+            mHighPaint.setTextSize(textHighSize);
         }
 
         @Override
@@ -277,6 +295,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
             String sampleTime = "08:00";
             String sampleDate = "SUN, FEB 12 2017";
+            String test = "test";
             float xPos = bounds.width()/2f;
             float yPos = bounds.height()/2f;
 
@@ -284,6 +303,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
                     yPos - mYOffset, mTextPaint);
             canvas.drawText(date, xPos - mDateTextPaint.measureText(sampleDate)/2f,
                     yPos - mYOffsetDate, mDateTextPaint);
+            canvas.drawText(test, xPos - mHighPaint.measureText(test)/2f, yPos + mHighY, mHighPaint);
 
             canvas.drawLine(xPos - 30, yPos, xPos + 30, yPos, mDividerPaint);
         }
@@ -318,6 +338,21 @@ public class MyWatchFace extends CanvasWatchFaceService {
                         - (timeMs % INTERACTIVE_UPDATE_RATE_MS);
                 mUpdateTimeHandler.sendEmptyMessageDelayed(MSG_UPDATE_TIME, delayMs);
             }
+        }
+
+        @Override
+        public void onConnected(@Nullable Bundle bundle) {
+            
+        }
+
+        @Override
+        public void onConnectionSuspended(int i) {
+
+        }
+
+        @Override
+        public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
         }
     }
 }
