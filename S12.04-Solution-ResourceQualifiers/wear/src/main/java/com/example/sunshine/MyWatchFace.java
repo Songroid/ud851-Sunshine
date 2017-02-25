@@ -42,6 +42,15 @@ import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEvent;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataItem;
+import com.google.android.gms.wearable.DataItemBuffer;
+import com.google.android.gms.wearable.DataMap;
+import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.Wearable;
 
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
@@ -55,8 +64,12 @@ import java.util.concurrent.TimeUnit;
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
 public class MyWatchFace extends CanvasWatchFaceService {
+
     private static final Typeface NORMAL_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
+    private static final String TAG = MyWatchFace.class.getSimpleName();
+
+
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
      * displayed in interactive mode.
@@ -105,6 +118,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
         Paint mHighPaint;
         float mHighY;
+        String mHighText;
 
         boolean mAmbient;
         Calendar mCalendar;
@@ -123,6 +137,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
          * disable anti-aliasing in ambient mode.
          */
         boolean mLowBitAmbient;
+
+        private GoogleApiClient googleApiClient;
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -152,11 +168,43 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
             mHighPaint = createTextPaint(resources.getColor(R.color.digital_text));
             mHighY = resources.getDimension(R.dimen.digital_y_offset_temp);
+            mHighText = "100";
+
+            googleApiClient = new GoogleApiClient.Builder(MyWatchFace.this)
+                    .addApi(Wearable.API)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .build();
+        }
+
+        private void releaseGoogleApiClient() {
+            if (googleApiClient != null && googleApiClient.isConnected()) {
+                Wearable.DataApi.removeListener(googleApiClient, onDataChangedListener);
+                googleApiClient.disconnect();
+            }
+        }
+
+        @Override
+        public void onConnected(@Nullable Bundle bundle) {
+            Log.d(TAG, "onConnected is called");
+            Wearable.DataApi.addListener(googleApiClient, onDataChangedListener);
+            Wearable.DataApi.getDataItems(googleApiClient).setResultCallback(onConnectedResultCallback);
+        }
+
+        @Override
+        public void onConnectionSuspended(int i) {
+
+        }
+
+        @Override
+        public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
         }
 
         @Override
         public void onDestroy() {
             mUpdateTimeHandler.removeMessages(MSG_UPDATE_TIME);
+            releaseGoogleApiClient();
             super.onDestroy();
         }
 
@@ -171,15 +219,17 @@ public class MyWatchFace extends CanvasWatchFaceService {
         @Override
         public void onVisibilityChanged(boolean visible) {
             super.onVisibilityChanged(visible);
+            Log.d(TAG, "onVisibilityChanged is called");
 
             if (visible) {
                 registerReceiver();
-
+                googleApiClient.connect();
                 // Update time zone in case it changed while we weren't visible.
                 mCalendar.setTimeZone(TimeZone.getDefault());
                 invalidate();
             } else {
                 unregisterReceiver();
+                releaseGoogleApiClient();
             }
 
             // Whether the timer should be running depends on whether we're visible (as well as
@@ -295,7 +345,6 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
             String sampleTime = "08:00";
             String sampleDate = "SUN, FEB 12 2017";
-            String test = "test";
             float xPos = bounds.width()/2f;
             float yPos = bounds.height()/2f;
 
@@ -303,7 +352,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
                     yPos - mYOffset, mTextPaint);
             canvas.drawText(date, xPos - mDateTextPaint.measureText(sampleDate)/2f,
                     yPos - mYOffsetDate, mDateTextPaint);
-            canvas.drawText(test, xPos - mHighPaint.measureText(test)/2f, yPos + mHighY, mHighPaint);
+            canvas.drawText(mHighText, xPos - mHighPaint.measureText(mHighText)/2f, yPos + mHighY,
+                    mHighPaint);
 
             canvas.drawLine(xPos - 30, yPos, xPos + 30, yPos, mDividerPaint);
         }
@@ -340,19 +390,49 @@ public class MyWatchFace extends CanvasWatchFaceService {
             }
         }
 
-        @Override
-        public void onConnected(@Nullable Bundle bundle) {
-            
+        private void updateWeather(DataItem item) {
+            DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
+
+            String key = "com.example.android.sunshine.key";
+            if (dataMap.containsKey(key)) {
+                String[] items = dataMap.getStringArray(key);
+                mHighText = items[0];
+                invalidate();
+            }
         }
 
-        @Override
-        public void onConnectionSuspended(int i) {
+        private final DataApi.DataListener onDataChangedListener = new DataApi.DataListener() {
+            @Override
+            public void onDataChanged(DataEventBuffer dataEvents) {
+                Log.d(TAG, "onDataChanged is called");
+                for (DataEvent event : dataEvents) {
+                    if (event.getType() == DataEvent.TYPE_CHANGED) {
+                        DataItem item = event.getDataItem();
+                        if (item.getUri().getPath().equals("/sunshine/weather")) {
+                            updateWeather(item);
+                        }
+                    }
+                }
 
-        }
+                dataEvents.release();
+                if (isVisible() && !isInAmbientMode()) {
+                    invalidate();
+                }
+            }
+        };
 
-        @Override
-        public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+        private final ResultCallback<DataItemBuffer> onConnectedResultCallback = new ResultCallback<DataItemBuffer>() {
+            @Override
+            public void onResult(DataItemBuffer dataItems) {
+                for (DataItem item : dataItems) {
+                    updateWeather(item);
+                }
 
-        }
+                dataItems.release();
+                if (isVisible() && !isInAmbientMode()) {
+                    invalidate();
+                }
+            }
+        };
     }
 }
