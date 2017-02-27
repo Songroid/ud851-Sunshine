@@ -68,6 +68,10 @@
             android:name=".sync.SunshineSyncIntentService"
             android:exported="false" />
 
+        <service
+            android:name=".sync.SunshineSyncWearableService"
+            android:exported="false" />
+
         <!-- This is the Service declaration used in conjunction with FirebaseJobDispatcher -->
         <service
             android:name=".sync.SunshineFirebaseJobService"

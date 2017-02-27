@@ -14,28 +14,29 @@
  * limitations under the License.
  */
 
-package com.example.sunshine;
+package com.example.android.sunshine;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.wearable.complications.ComplicationData;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.util.Log;
-import android.util.SparseArray;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 import android.widget.Toast;
@@ -43,6 +44,7 @@ import android.widget.Toast;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
@@ -52,6 +54,7 @@ import com.google.android.gms.wearable.DataMap;
 import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.Wearable;
 
+import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -117,8 +120,11 @@ public class MyWatchFace extends CanvasWatchFaceService {
         Paint mDividerPaint;
 
         Paint mHighPaint;
+        Paint mLowPaint;
+        Bitmap mIcon;
         float mHighY;
         String mHighText;
+        String mLowText;
 
         boolean mAmbient;
         Calendar mCalendar;
@@ -139,6 +145,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
         boolean mLowBitAmbient;
 
         private GoogleApiClient googleApiClient;
+        private DataApi.DataListener onDataChangedListener;
+        private ResultCallback<DataItemBuffer> onConnectedResultCallback;
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -167,14 +175,52 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mCalendar = Calendar.getInstance();
 
             mHighPaint = createTextPaint(resources.getColor(R.color.digital_text));
+            mLowPaint = createTextPaint(resources.getColor(R.color.date_digital_text));
             mHighY = resources.getDimension(R.dimen.digital_y_offset_temp);
             mHighText = "100";
+            mLowText = "100";
+            mIcon = Bitmap.createScaledBitmap(BitmapFactory.decodeResource(getResources(),
+                    R.mipmap.ic_launcher), 75, 75, false);
 
             googleApiClient = new GoogleApiClient.Builder(MyWatchFace.this)
                     .addApi(Wearable.API)
                     .addConnectionCallbacks(this)
                     .addOnConnectionFailedListener(this)
                     .build();
+
+            onDataChangedListener = new DataApi.DataListener() {
+                @Override
+                public void onDataChanged(DataEventBuffer dataEvents) {
+                    Log.d(TAG, "onDataChanged is called");
+                    for (DataEvent event : dataEvents) {
+                        if (event.getType() == DataEvent.TYPE_CHANGED) {
+                            final DataItem item = event.getDataItem();
+                            if (item.getUri().getPath().equals("/sunshine/weather")) {
+                                updateWeather(item);
+                            }
+                        }
+                    }
+
+                    dataEvents.release();
+                    if (isVisible() && !isInAmbientMode()) {
+                        invalidate();
+                    }
+                }
+            };
+
+            onConnectedResultCallback = new ResultCallback<DataItemBuffer>() {
+                @Override
+                public void onResult(DataItemBuffer dataItems) {
+                    for (DataItem item : dataItems) {
+                        updateWeather(item);
+                    }
+
+                    dataItems.release();
+                    if (isVisible() && !isInAmbientMode()) {
+                        invalidate();
+                    }
+                }
+            };
         }
 
         private void releaseGoogleApiClient() {
@@ -198,7 +244,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
         @Override
         public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
-
+            Log.d(TAG, "onConnectionFailed is called " + connectionResult.getErrorCode() + ": " +
+                            connectionResult.getErrorMessage());
         }
 
         @Override
@@ -271,6 +318,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mTextPaint.setTextSize(textSize);
             mDateTextPaint.setTextSize(textDateSize);
             mHighPaint.setTextSize(textHighSize);
+            mLowPaint.setTextSize(textHighSize);
         }
 
         @Override
@@ -354,8 +402,20 @@ public class MyWatchFace extends CanvasWatchFaceService {
                     yPos - mYOffsetDate, mDateTextPaint);
             canvas.drawText(mHighText, xPos - mHighPaint.measureText(mHighText)/2f, yPos + mHighY,
                     mHighPaint);
+            canvas.drawText(mLowText, xPos + mHighPaint.measureText(mHighText)/2f,
+                            yPos + mHighY,
+                            mLowPaint);
 
             canvas.drawLine(xPos - 30, yPos, xPos + 30, yPos, mDividerPaint);
+
+            // draw the icon
+            if (mIcon == null) {
+                mIcon = Bitmap.createScaledBitmap(mIcon, 75, 75, false);
+            }
+            canvas.drawBitmap(mIcon,
+                    xPos - mDateTextPaint.measureText(sampleDate)/2f,
+                    yPos,
+                    null);
         }
 
         /**
@@ -391,48 +451,62 @@ public class MyWatchFace extends CanvasWatchFaceService {
         }
 
         private void updateWeather(DataItem item) {
-            DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
+            final DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
 
             String key = "com.example.android.sunshine.key";
+            String iconKey = "com.example.android.sunshine.icon";
+
             if (dataMap.containsKey(key)) {
                 String[] items = dataMap.getStringArray(key);
                 mHighText = items[0];
+                mLowText = items[1];
                 invalidate();
+            }
+
+            if (dataMap.containsKey(iconKey)) {
+                Asset asset = dataMap.getAsset(iconKey);
+
+                if (asset == null)
+                    return;
+
+                DownloadFilesTask task = new DownloadFilesTask();
+                task.execute(asset);
             }
         }
 
-        private final DataApi.DataListener onDataChangedListener = new DataApi.DataListener() {
+        private class DownloadFilesTask extends AsyncTask<Asset, Void, Bitmap> {
             @Override
-            public void onDataChanged(DataEventBuffer dataEvents) {
-                Log.d(TAG, "onDataChanged is called");
-                for (DataEvent event : dataEvents) {
-                    if (event.getType() == DataEvent.TYPE_CHANGED) {
-                        DataItem item = event.getDataItem();
-                        if (item.getUri().getPath().equals("/sunshine/weather")) {
-                            updateWeather(item);
-                        }
-                    }
-                }
-
-                dataEvents.release();
-                if (isVisible() && !isInAmbientMode()) {
-                    invalidate();
-                }
+            protected Bitmap doInBackground(Asset... params) {
+                // Log.v("SunshineWatchFace", "Doing Background");
+                return loadBitmapFromAsset(params[0]);
             }
-        };
 
-        private final ResultCallback<DataItemBuffer> onConnectedResultCallback = new ResultCallback<DataItemBuffer>() {
             @Override
-            public void onResult(DataItemBuffer dataItems) {
-                for (DataItem item : dataItems) {
-                    updateWeather(item);
-                }
-
-                dataItems.release();
-                if (isVisible() && !isInAmbientMode()) {
-                    invalidate();
-                }
+            protected void onPostExecute(Bitmap b) {
+                mIcon = Bitmap.createScaledBitmap(b, 75, 75, false);
+                invalidate();
             }
-        };
+
+            public Bitmap loadBitmapFromAsset(Asset asset) {
+                if (asset == null) {
+                    throw new IllegalArgumentException("Asset must be non-null");
+                }
+                ConnectionResult result =
+                        googleApiClient.blockingConnect(5000, TimeUnit.MILLISECONDS);
+                if (!result.isSuccess()) {
+                    return null;
+                }
+                // convert asset into a file descriptor and block until it's ready
+                InputStream assetInputStream = Wearable.DataApi.getFdForAsset(
+                        googleApiClient, asset).await().getInputStream();
+                googleApiClient.disconnect();
+
+                if (assetInputStream == null) {
+                    return null;
+                }
+                return BitmapFactory.decodeStream(assetInputStream);
+            }
+
+        }
     }
 }
